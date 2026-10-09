@@ -1,12 +1,12 @@
 "use client";
 
 import { useState, useTransition } from "react";
-import { addCatalogItem, editCatalogItem, removeCatalogItem } from "@/app/actions/admin";
+import { addCatalogItem, editCatalogItem, removeCatalogItem, toggleCatalogItemActive } from "@/app/actions/admin";
 import type { AdminData } from "../AdminPanel";
 
-type FormState = { id: string | null; name: string; points: string; imageBase64: string | null; previewUrl: string | null };
+type FormState = { id: string | null; name: string; points: string; description: string; imageBase64: string | null; previewUrl: string | null };
 
-const EMPTY_FORM: FormState = { id: null, name: "", points: "", imageBase64: null, previewUrl: null };
+const EMPTY_FORM: FormState = { id: null, name: "", points: "", description: "", imageBase64: null, previewUrl: null };
 
 export default function CatalogTab({ data, refresh }: { data: AdminData; refresh: () => void }) {
   const [isPending, startTransition] = useTransition();
@@ -17,7 +17,14 @@ export default function CatalogTab({ data, refresh }: { data: AdminData; refresh
     setForm({ ...EMPTY_FORM });
   }
   function openEdit(item: any) {
-    setForm({ id: item.id, name: item.name, points: String(item.points), imageBase64: null, previewUrl: item.image_url });
+    setForm({
+      id: item.id,
+      name: item.name,
+      points: String(item.points),
+      description: item.description || "",
+      imageBase64: null,
+      previewUrl: item.image_url,
+    });
   }
 
   function handleFile(e: React.ChangeEvent<HTMLInputElement>) {
@@ -37,11 +44,18 @@ export default function CatalogTab({ data, refresh }: { data: AdminData; refresh
 
     startTransition(async () => {
       if (form.id) {
-        await editCatalogItem(form.id, form.name, points, form.imageBase64 || undefined);
+        await editCatalogItem(form.id, form.name, points, form.imageBase64 || undefined, form.description);
       } else {
-        await addCatalogItem(form.name, points, form.imageBase64 || undefined);
+        await addCatalogItem(form.name, points, form.imageBase64 || undefined, form.description);
       }
       setForm(null);
+      refresh();
+    });
+  }
+
+  function handleToggleActive(id: string) {
+    startTransition(async () => {
+      await toggleCatalogItemActive(id);
       refresh();
     });
   }
@@ -61,7 +75,7 @@ export default function CatalogTab({ data, refresh }: { data: AdminData; refresh
     <div className="card p-6">
       <h2 className="font-display text-xl text-bone mb-1">Brindes do catálogo</h2>
       <p className="text-xs text-bone/50 mb-4">
-        Adicione, edite pontos, troque a foto ou remova um brinde. As mudanças aparecem na hora para os clientes.
+        Adicione, edite pontos, troque a foto, pause temporariamente ou remova um brinde. Um brinde pausado some do catálogo dos clientes, mas fica guardado aqui pra reativar quando quiser. As mudanças aparecem na hora.
       </p>
 
       <button onClick={openAdd} className="w-full bg-gold text-ink font-semibold rounded-md py-2.5 text-sm mb-4">
@@ -70,22 +84,40 @@ export default function CatalogTab({ data, refresh }: { data: AdminData; refresh
 
       <ul className="space-y-3">
         {data.catalog.map((item: any) => (
-          <li key={item.id} className="flex items-center gap-3 border-b border-white/5 pb-3 last:border-0">
+          <li key={item.id} className={`flex items-center gap-3 border-b border-white/5 pb-3 last:border-0 ${item.active === false ? "opacity-50" : ""}`}>
             {item.image_url ? (
               <img src={item.image_url} className="w-12 h-12 rounded-md object-cover gold-border" />
             ) : (
               <div className="w-12 h-12 rounded-md border border-dashed border-gold/30 flex items-center justify-center text-lg">🎁</div>
             )}
             <div className="flex-1">
-              <p className="text-sm font-semibold text-bone">{item.name}</p>
+              <div className="flex items-center gap-2">
+                <p className="text-sm font-semibold text-bone">{item.name}</p>
+                {item.active === false && (
+                  <span className="text-[10px] px-2 py-0.5 rounded-full border border-yellow-400/30 bg-yellow-400/10 text-yellow-300">
+                    Pausado
+                  </span>
+                )}
+              </div>
               <p className="text-xs text-bone/40">{item.points} pontos</p>
             </div>
-            <button onClick={() => openEdit(item)} className="text-xs border border-gold/30 text-bone rounded-md px-3 py-1.5">
-              Editar
-            </button>
-            <button onClick={() => setRemoveId(item.id)} className="text-xs bg-red-500/80 text-white rounded-md px-3 py-1.5">
-              Remover
-            </button>
+            <div className="flex flex-col gap-1.5 items-end">
+              <div className="flex gap-1.5">
+                <button onClick={() => openEdit(item)} className="text-xs border border-gold/30 text-bone rounded-md px-3 py-1.5">
+                  Editar
+                </button>
+                <button onClick={() => setRemoveId(item.id)} className="text-xs bg-red-500/80 text-white rounded-md px-3 py-1.5">
+                  Remover
+                </button>
+              </div>
+              <button
+                disabled={isPending}
+                onClick={() => handleToggleActive(item.id)}
+                className="text-xs border border-gold/30 text-bone rounded-md px-3 py-1.5 w-full text-center"
+              >
+                {item.active === false ? "Reativar" : "Pausar"}
+              </button>
+            </div>
           </li>
         ))}
       </ul>
@@ -116,7 +148,15 @@ export default function CatalogTab({ data, refresh }: { data: AdminData; refresh
               value={form.points}
               onChange={(e) => setForm({ ...form, points: e.target.value })}
               placeholder="Ex: 150"
-              className="w-full bg-black/30 gold-border rounded-md px-3 py-2 text-sm text-bone mb-4 mt-1"
+              className="w-full bg-black/30 gold-border rounded-md px-3 py-2 text-sm text-bone mb-3 mt-1"
+            />
+            <label className="text-xs text-bone/50">Descrição (opcional, aparece pro cliente)</label>
+            <textarea
+              value={form.description}
+              onChange={(e) => setForm({ ...form, description: e.target.value })}
+              rows={2}
+              placeholder="Ex: válido para qualquer unidade, retirada em até 30 dias"
+              className="w-full bg-black/30 gold-border rounded-md px-3 py-2 text-sm text-bone mb-4 mt-1 resize-none"
             />
             <div className="flex gap-2">
               <button onClick={() => setForm(null)} className="flex-1 border border-gold/30 rounded-md py-2 text-sm text-bone">

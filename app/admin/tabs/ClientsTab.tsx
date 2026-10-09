@@ -58,6 +58,11 @@ export default function ClientsTab({ data, refresh }: { data: AdminData; refresh
             <p className="text-xs text-bone/40">
               {c.email || "sem e-mail cadastrado"} · {c.recommendationCount} recomendações cadastradas
             </p>
+            <p className="text-xs text-bone/30">
+              {c.rules_accepted_at
+                ? `Aceitou as regras em ${new Date(c.rules_accepted_at).toLocaleString("pt-BR")}`
+                : "Ainda não aceitou as regras"}
+            </p>
             {isBlocked && (
               <p className="text-xs text-yellow-300/80 mt-1">
                 Bloqueado até {new Date(c.blocked_until).toLocaleDateString("pt-BR")} (estorno de pontos zerou o saldo)

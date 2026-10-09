@@ -18,7 +18,7 @@ export async function getDashboardData() {
         .select("id, name, phone, status, meeting_date, meeting_time, became_client_at")
         .eq("referrer_cpf", cpf)
         .order("created_at", { ascending: false }),
-      db.from("catalog_items").select("id, name, points, image_url").order("points", { ascending: true }),
+      db.from("catalog_items").select("id, name, points, image_url, description").eq("active", true).order("points", { ascending: true }),
       db.from("app_settings").select("value").eq("key", "rules_text").maybeSingle(),
     ]);
 
@@ -128,10 +128,11 @@ export async function requestRedemption(
 
   const [{ data: client }, { data: item }] = await Promise.all([
     db.from("clients").select("points, email").eq("cpf", cpf).maybeSingle(),
-    db.from("catalog_items").select("id, name, points").eq("id", itemId).maybeSingle(),
+    db.from("catalog_items").select("id, name, points, active").eq("id", itemId).maybeSingle(),
   ]);
 
   if (!client || !item) return { ok: false, error: "Não encontrei esse item ou sua conta." };
+  if (!item.active) return { ok: false, error: "Este brinde não está mais disponível." };
 
   if (client.points < item.points) {
     return { ok: false, error: "Saldo insuficiente.", missing: item.points - client.points };
@@ -171,6 +172,30 @@ export async function updateClientEmail(
   const db = supabaseAdmin();
   const { error } = await db.from("clients").update({ email }).eq("cpf", cpf);
   if (error) return { ok: false, error: "Não consegui atualizar o e-mail. Tente de novo." };
+
+  return { ok: true };
+}
+
+// Registra que o cliente leu e concordou com as regras vigentes agora, com data/hora
+// e o texto exato que ele viu — serve de prova em caso de dúvida futura.
+export async function acceptRules(): Promise<{ ok: true } | { ok: false; error: string }> {
+  const cpf = await getClientSession();
+  if (!cpf) return { ok: false, error: "Sessão expirada. Faça login de novo." };
+
+  const db = supabaseAdmin();
+
+  const { data: settings } = await db.from("app_settings").select("value").eq("key", "rules_text").maybeSingle();
+  const rulesText = settings?.value ?? "";
+  const now = new Date().toISOString();
+
+  const { error: logError } = await db.from("rules_acceptances").insert({
+    cpf,
+    rules_text: rulesText,
+    accepted_at: now,
+  });
+  if (logError) return { ok: false, error: "Não consegui registrar seu aceite. Tente de novo." };
+
+  await db.from("clients").update({ rules_accepted_at: now }).eq("cpf", cpf);
 
   return { ok: true };
 }

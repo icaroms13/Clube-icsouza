@@ -3,7 +3,7 @@
 import { useState, useTransition } from "react";
 import { requestRedemption } from "@/app/actions/client";
 
-type CatalogItem = { id: string; name: string; points: number; image_url: string | null };
+type CatalogItem = { id: string; name: string; points: number; image_url: string | null; description: string | null };
 
 export default function RewardsCatalog({
   catalog,
@@ -93,9 +93,10 @@ export default function RewardsCatalog({
           <div className="card max-w-sm w-full p-6 text-center">
             <p className="text-3xl mb-2">🎁</p>
             <h3 className="font-display text-xl text-bone mb-2">Confirmar resgate?</h3>
-            <p className="text-sm text-bone/70 mb-6">
+            <p className="text-sm text-bone/70 mb-2">
               Confirmar o resgate de <b>{confirmItem.name}</b> por <b>{confirmItem.points} pontos</b>?
             </p>
+            <p className="text-xs text-bone/50 mb-6">{confirmItem.description || ""}</p>
             <div className="flex gap-3">
               <button onClick={() => setConfirmItem(null)} className="flex-1 border border-gold/30 rounded-md py-2 text-sm text-bone">
                 Cancelar

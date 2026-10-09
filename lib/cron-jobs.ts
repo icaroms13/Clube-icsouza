@@ -1,6 +1,7 @@
 import { supabaseAdmin } from "@/lib/supabase-admin";
 import { emailOnInactive, emailWeeklyBecameClientDigest } from "@/lib/automations";
 import { creditPoints } from "@/lib/points";
+import { getActivePointsMultiplier } from "@/lib/promotions";
 
 // Credita +100 para quem já completou os 90 dias de contagem desde que a recomendação virou cliente.
 export async function processNinetyDayBonuses() {
@@ -19,7 +20,8 @@ export async function processNinetyDayBonuses() {
         .from("recommendations")
         .update({ status: "cliente", bonus_credited_at: new Date().toISOString() })
         .eq("id", rec.id);
-      await creditPoints(rec.referrer_cpf, 100);
+      const multiplier = await getActivePointsMultiplier();
+      await creditPoints(rec.referrer_cpf, Math.round(100 * multiplier));
       credited++;
     }
   }

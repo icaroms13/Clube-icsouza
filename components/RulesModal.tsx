@@ -1,11 +1,26 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useTransition } from "react";
+import { acceptRules } from "@/app/actions/client";
 
 export default function RulesModal({ text }: { text: string }) {
   const [open, setOpen] = useState(true);
+  const [error, setError] = useState("");
+  const [isPending, startTransition] = useTransition();
 
   if (!open) return null;
+
+  function handleAccept() {
+    setError("");
+    startTransition(async () => {
+      const result = await acceptRules();
+      if (!result.ok) {
+        setError(result.error);
+        return;
+      }
+      setOpen(false);
+    });
+  }
 
   return (
     <div className="fixed inset-0 bg-black/70 flex items-center justify-center px-4 z-50">
@@ -13,11 +28,13 @@ export default function RulesModal({ text }: { text: string }) {
         <p className="text-gold text-xs uppercase tracking-[0.25em] mb-2">Como funciona</p>
         <h2 className="font-display text-2xl text-bone mb-4">Regras do Clube</h2>
         <p className="text-sm text-bone/70 leading-relaxed whitespace-pre-line">{text}</p>
+        {error && <p className="text-sm text-red-400 mt-4">{error}</p>}
         <button
-          onClick={() => setOpen(false)}
-          className="mt-6 w-full bg-gold text-ink font-semibold rounded-md py-3 hover:bg-gold-light transition"
+          disabled={isPending}
+          onClick={handleAccept}
+          className="mt-6 w-full bg-gold text-ink font-semibold rounded-md py-3 hover:bg-gold-light transition disabled:opacity-50"
         >
-          Entendi
+          {isPending ? "Salvando..." : "Li, estou de acordo"}
         </button>
       </div>
     </div>

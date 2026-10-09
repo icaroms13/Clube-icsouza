@@ -11,6 +11,7 @@ import {
   sendManualCampaign as sendCampaignEmails,
 } from "@/lib/automations";
 import { creditPoints } from "@/lib/points";
+import { getActivePointsMultiplier } from "@/lib/promotions";
 
 export async function adminLogin(password: string): Promise<{ ok: boolean; error?: string }> {
   const expected = process.env.ADMIN_PASSWORD;
@@ -44,15 +45,17 @@ export async function getAdminData() {
     { data: redemptions },
     { data: automations },
     { data: emailLog },
+    { data: promotions },
   ] = await Promise.all([
     db.from("recommendations").select("*").order("created_at", { ascending: false }),
     db.from("catalog_items").select("*").order("points", { ascending: true }),
     db.from("authorized_cpfs").select("cpf").order("created_at", { ascending: false }),
     db.from("app_settings").select("value").eq("key", "rules_text").maybeSingle(),
-    db.from("clients").select("cpf, points, email, active, last_referral_at, blocked_until").order("created_at", { ascending: false }),
+    db.from("clients").select("cpf, points, email, active, last_referral_at, blocked_until, rules_accepted_at").order("created_at", { ascending: false }),
     db.from("redemptions").select("*").order("created_at", { ascending: false }),
     db.from("email_automations").select("*"),
     db.from("email_log").select("*").order("created_at", { ascending: false }).limit(50),
+    db.from("promotions").select("*").order("starts_at", { ascending: false }),
   ]);
 
   const counts = new Map<string, number>();
@@ -72,6 +75,7 @@ export async function getAdminData() {
     redemptions: redemptions ?? [],
     automations: automations ?? [],
     emailLog: emailLog ?? [],
+    promotions: promotions ?? [],
   };
 }
 
@@ -123,7 +127,8 @@ export async function markMeetingHappened(id: string) {
   const { error } = await db.from("recommendations").update({ status: "realizada" }).eq("id", id);
   if (error) return { ok: false, error: "Erro ao atualizar." };
 
-  await creditPoints(rec.referrer_cpf, 10);
+  const multiplier = await getActivePointsMultiplier();
+  await creditPoints(rec.referrer_cpf, Math.round(10 * multiplier));
   return { ok: true };
 }
 
@@ -288,14 +293,16 @@ async function uploadBrindeImage(base64DataUrl: string): Promise<string | null> 
   return data.publicUrl;
 }
 
-export async function addCatalogItem(name: string, points: number, imageBase64?: string) {
+export async function addCatalogItem(name: string, points: number, imageBase64?: string, description?: string) {
   await requireAdmin();
   if (!name.trim() || !points) return { ok: false, error: "Preencha nome e pontos do brinde." };
 
   const db = supabaseAdmin();
   const image_url = imageBase64 ? await uploadBrindeImage(imageBase64) : null;
 
-  const { error } = await db.from("catalog_items").insert({ name: name.trim(), points, image_url });
+  const { error } = await db
+    .from("catalog_items")
+    .insert({ name: name.trim(), points, image_url, description: description?.trim() || null });
   if (error) return { ok: false, error: "Erro ao adicionar brinde." };
 
   const { data: activeClients } = await db.from("clients").select("email").eq("active", true);
@@ -306,11 +313,11 @@ export async function addCatalogItem(name: string, points: number, imageBase64?:
   return { ok: true };
 }
 
-export async function editCatalogItem(id: string, name: string, points: number, imageBase64?: string) {
+export async function editCatalogItem(id: string, name: string, points: number, imageBase64?: string, description?: string) {
   await requireAdmin();
   const db = supabaseAdmin();
 
-  const update: Record<string, unknown> = { name: name.trim(), points };
+  const update: Record<string, unknown> = { name: name.trim(), points, description: description?.trim() || null };
   if (imageBase64) {
     const url = await uploadBrindeImage(imageBase64);
     if (url) update.image_url = url;
@@ -327,6 +334,18 @@ export async function removeCatalogItem(id: string) {
   const { error } = await db.from("catalog_items").delete().eq("id", id);
   if (error) return { ok: false, error: "Erro ao remover brinde." };
   return { ok: true };
+}
+
+// Pausa (esconde do catálogo dos clientes sem apagar) ou reativa um brinde.
+export async function toggleCatalogItemActive(id: string) {
+  await requireAdmin();
+  const db = supabaseAdmin();
+  const { data: item } = await db.from("catalog_items").select("active").eq("id", id).maybeSingle();
+  if (!item) return { ok: false, error: "Brinde não encontrado." };
+
+  const { error } = await db.from("catalog_items").update({ active: !item.active }).eq("id", id);
+  if (error) return { ok: false, error: "Erro ao atualizar o brinde." };
+  return { ok: true, active: !item.active };
 }
 
 // ---------- Resgates: acompanhar status de entrega ----------
@@ -374,6 +393,35 @@ export async function sendManualCampaign(audience: "all" | "inactive", subject: 
 
   const sent = await sendCampaignEmails(targets.map((t) => t.email as string), subject, message);
   return { ok: true, sent };
+}
+
+// ---------- Promoções temporárias de pontos ----------
+
+export async function createPromotion(label: string, multiplier: number, startsAt: string, endsAt: string) {
+  await requireAdmin();
+  if (!label.trim()) return { ok: false, error: "Dê um nome pra promoção." };
+  if (!multiplier || multiplier <= 1) return { ok: false, error: "O multiplicador precisa ser maior que 1 (ex: 2 para pontos em dobro)." };
+  if (!startsAt || !endsAt || new Date(endsAt) <= new Date(startsAt)) {
+    return { ok: false, error: "Confira as datas: o fim precisa ser depois do início." };
+  }
+
+  const db = supabaseAdmin();
+  const { error } = await db.from("promotions").insert({
+    label: label.trim(),
+    multiplier,
+    starts_at: new Date(startsAt).toISOString(),
+    ends_at: new Date(endsAt).toISOString(),
+  });
+  if (error) return { ok: false, error: "Erro ao criar a promoção." };
+  return { ok: true };
+}
+
+export async function endPromotion(id: string) {
+  await requireAdmin();
+  const db = supabaseAdmin();
+  const { error } = await db.from("promotions").delete().eq("id", id);
+  if (error) return { ok: false, error: "Erro ao encerrar a promoção." };
+  return { ok: true };
 }
 
 export async function setRulesText(text: string) {

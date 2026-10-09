@@ -19,7 +19,17 @@ create table if not exists clients (
   blocked_until timestamptz,       -- bloqueio temporário (3 meses) quando um estorno zera o saldo
   last_referral_at timestamptz,
   last_inactivity_email_at timestamptz,
+  rules_accepted_at timestamptz,   -- última vez que o cliente clicou em "Li, estou de acordo"
   created_at timestamptz default now()
+);
+
+-- Log de aceite das regras: histórico completo, com o texto exato aceito em cada data/hora.
+-- Serve de prova caso precise comprovar que o cliente concordou com as regras vigentes na época.
+create table if not exists rules_acceptances (
+  id uuid primary key default gen_random_uuid(),
+  cpf text not null references clients(cpf) on delete cascade,
+  rules_text text not null,
+  accepted_at timestamptz not null default now()
 );
 
 -- Recomendações cadastradas pelos clientes
@@ -52,7 +62,20 @@ create table if not exists catalog_items (
   id uuid primary key default gen_random_uuid(),
   name text not null,
   points integer not null,
+  description text,
   image_url text,
+  active boolean not null default true,
+  created_at timestamptz default now()
+);
+
+-- Promoções temporárias de pontos: multiplicam os 10 (reunião) e 100 (virou cliente)
+-- pontos-base durante a janela de datas. O admin cria/remove pela aba Config.
+create table if not exists promotions (
+  id uuid primary key default gen_random_uuid(),
+  label text not null,
+  multiplier numeric not null default 2,
+  starts_at timestamptz not null,
+  ends_at timestamptz not null,
   created_at timestamptz default now()
 );
 
@@ -135,6 +158,8 @@ alter table redemptions enable row level security;
 alter table app_settings enable row level security;
 alter table email_automations enable row level security;
 alter table email_log enable row level security;
+alter table promotions enable row level security;
+alter table rules_acceptances enable row level security;
 
 -- Nenhuma policy de select/insert pública é criada de propósito:
 -- só a service role key (usada nas Server Actions, nunca no navegador) tem acesso.
@@ -156,3 +181,26 @@ alter table recommendations add constraint recommendations_status_check
   check (status in ('aguardando','agendada','realizada','naorealizada','contando','cliente','cancelada'));
 
 alter table recommendations add column if not exists description text;
+
+alter table catalog_items add column if not exists active boolean not null default true;
+alter table catalog_items add column if not exists description text;
+
+create table if not exists promotions (
+  id uuid primary key default gen_random_uuid(),
+  label text not null,
+  multiplier numeric not null default 2,
+  starts_at timestamptz not null,
+  ends_at timestamptz not null,
+  created_at timestamptz default now()
+);
+alter table promotions enable row level security;
+
+alter table clients add column if not exists rules_accepted_at timestamptz;
+
+create table if not exists rules_acceptances (
+  id uuid primary key default gen_random_uuid(),
+  cpf text not null references clients(cpf) on delete cascade,
+  rules_text text not null,
+  accepted_at timestamptz not null default now()
+);
+alter table rules_acceptances enable row level security;
