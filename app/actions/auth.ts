@@ -146,6 +146,13 @@ export async function loginDemo(): Promise<AuthResult> {
   return { ok: true, status: "logged_in" };
 }
 
+// Texto das regras, aberto a qualquer visitante (usado no botão "Ver regras" da tela de login).
+export async function getPublicRulesText(): Promise<string> {
+  const db = supabaseAdmin();
+  const { data } = await db.from("app_settings").select("value").eq("key", "rules_text").maybeSingle();
+  return data?.value ?? "";
+}
+
 export async function logout() {
   await clearClientSession();
 }

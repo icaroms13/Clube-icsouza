@@ -12,7 +12,7 @@ export async function getDashboardData() {
 
   const [{ data: client }, { data: recommendations }, { data: catalog }, { data: settings }] =
     await Promise.all([
-      db.from("clients").select("cpf, points, email, active, blocked_until").eq("cpf", cpf).maybeSingle(),
+      db.from("clients").select("cpf, points, email, active, blocked_until, rules_accepted_at").eq("cpf", cpf).maybeSingle(),
       db
         .from("recommendations")
         .select("id, name, phone, status, meeting_date, meeting_time, became_client_at")
@@ -43,6 +43,7 @@ export async function getDashboardData() {
     recommendations: withCountdown,
     catalog: catalog ?? [],
     rulesText: settings?.value ?? "",
+    rulesAccepted: !!client.rules_accepted_at,
   };
 }
 
