@@ -9,10 +9,12 @@ import RedemptionsTab from "./tabs/RedemptionsTab";
 import CatalogTab from "./tabs/CatalogTab";
 import CommsTab from "./tabs/CommsTab";
 import SettingsTab from "./tabs/SettingsTab";
+import DashboardTab from "./tabs/DashboardTab";
 
 export type AdminData = Awaited<ReturnType<typeof getAdminData>>;
 
 const TABS = [
+  { id: "dash", label: "Dashboard" },
   { id: "recs", label: "Recomendações" },
   { id: "clients", label: "Clientes" },
   { id: "redeem", label: "Resgates" },
@@ -85,6 +87,7 @@ export default function AdminPanel({ initialData }: { initialData: AdminData }) 
           })}
         </div>
 
+        {tab === "dash" && <DashboardTab data={data} />}
         {tab === "recs" && <RecsTab data={data} refresh={refresh} />}
         {tab === "clients" && <ClientsTab data={data} refresh={refresh} />}
         {tab === "redeem" && <RedemptionsTab data={data} refresh={refresh} />}
