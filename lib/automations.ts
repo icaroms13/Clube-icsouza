@@ -3,13 +3,26 @@ import { supabaseAdmin } from "@/lib/supabase-admin";
 
 const ADMIN_EMAIL = process.env.ADMIN_NOTIFY_EMAIL || "icaromsouza13@gmail.com";
 
+function portalUrl() {
+  const explicit = process.env.APP_URL;
+  if (explicit) return explicit.replace(/\/+$/, "");
+  const vercel = process.env.VERCEL_PROJECT_PRODUCTION_URL;
+  if (vercel) return `https://${vercel}`;
+  return "";
+}
+
 function wrap(title: string, bodyHtml: string) {
+  const url = portalUrl();
+  const button = url
+    ? `<p style="text-align:center;margin:26px 0 4px;"><a href="${url}" style="display:inline-block;background:#c8a24d;color:#0b0b0c;font-family:Arial,sans-serif;font-weight:bold;font-size:14px;text-decoration:none;padding:13px 28px;border-radius:8px;">Acessar o portal</a></p>`
+    : "";
   return `
   <div style="font-family:Georgia,serif;background:#0b0b0c;padding:32px 16px;">
     <div style="max-width:480px;margin:0 auto;background:#151513;border:1px solid rgba(200,162,77,.35);border-radius:14px;padding:28px;">
       <p style="color:#c8a24d;font-size:11px;letter-spacing:3px;text-transform:uppercase;margin:0 0 6px;">IC Souza</p>
       <h1 style="color:#f2ede1;font-size:22px;margin:0 0 16px;">${title}</h1>
       <div style="color:#cfc9bb;font-size:14px;line-height:1.7;font-family:Arial,sans-serif;">${bodyHtml}</div>
+      ${button}
       <p style="color:#8a8478;font-size:11px;margin-top:24px;">Clube de Recomendações IC Souza</p>
     </div>
   </div>`;
