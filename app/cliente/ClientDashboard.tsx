@@ -17,6 +17,8 @@ export default function ClientDashboard({ initialData }: { initialData: Dashboar
   const router = useRouter();
   const [data, setData] = useState(initialData);
   const [showProfile, setShowProfile] = useState(false);
+  const [needsAccept, setNeedsAccept] = useState(!initialData.rulesAccepted);
+  const [showRules, setShowRules] = useState(false);
   const [, startTransition] = useTransition();
 
   function refresh() {
@@ -36,7 +38,10 @@ export default function ClientDashboard({ initialData }: { initialData: Dashboar
 
   return (
     <main className="min-h-screen px-4 py-10">
-      <RulesModal text={data.rulesText} />
+      {needsAccept && (
+        <RulesModal text={data.rulesText} requireAccept onAccepted={() => setNeedsAccept(false)} />
+      )}
+      {showRules && !needsAccept && <RulesModal text={data.rulesText} onClose={() => setShowRules(false)} />}
 
       <div className="max-w-2xl mx-auto">
         <div className="flex items-center justify-between mb-8">
@@ -45,6 +50,9 @@ export default function ClientDashboard({ initialData }: { initialData: Dashboar
             <h1 className="font-display text-3xl font-semibold text-bone">Clube de Recomendações</h1>
           </div>
           <div className="flex items-center gap-4">
+            <button onClick={() => setShowRules(true)} className="text-xs text-bone/50 hover:text-bone/80">
+              Regras
+            </button>
             <button onClick={() => setShowProfile(true)} className="text-xs text-bone/50 hover:text-bone/80">
               Perfil
             </button>
