@@ -49,9 +49,9 @@ export async function getAdminData() {
   ] = await Promise.all([
     db.from("recommendations").select("*").order("created_at", { ascending: false }),
     db.from("catalog_items").select("*").order("points", { ascending: true }),
-    db.from("authorized_cpfs").select("cpf").order("created_at", { ascending: false }),
+    db.from("authorized_cpfs").select("cpf, name, city, client_since, created_at").order("created_at", { ascending: false }),
     db.from("app_settings").select("value").eq("key", "rules_text").maybeSingle(),
-    db.from("clients").select("cpf, points, email, active, last_referral_at, blocked_until, rules_accepted_at").order("created_at", { ascending: false }),
+    db.from("clients").select("cpf, points, email, active, last_referral_at, blocked_until, rules_accepted_at, created_at").order("created_at", { ascending: false }),
     db.from("redemptions").select("*").order("created_at", { ascending: false }),
     db.from("email_automations").select("*"),
     db.from("email_log").select("*").order("created_at", { ascending: false }).limit(50),
@@ -61,15 +61,40 @@ export async function getAdminData() {
   const counts = new Map<string, number>();
   (recommendations ?? []).forEach((r) => counts.set(r.referrer_cpf, (counts.get(r.referrer_cpf) ?? 0) + 1));
 
+  const profiles = new Map<string, { name: string | null; city: string | null; client_since: string | null }>();
+  (authorizedCpfs ?? []).forEach((a: any) =>
+    profiles.set(a.cpf, { name: a.name ?? null, city: a.city ?? null, client_since: a.client_since ?? null })
+  );
+
   const clientsWithCounts = (clients ?? []).map((c) => ({
     ...c,
     recommendationCount: counts.get(c.cpf) ?? 0,
+    name: profiles.get(c.cpf)?.name ?? null,
+    city: profiles.get(c.cpf)?.city ?? null,
+    client_since: profiles.get(c.cpf)?.client_since ?? null,
+  }));
+
+  // Cada recomendação carrega os dados de quem indicou (nome, cidade, desde quando é cliente)
+  const recommendationsWithReferrer = (recommendations ?? []).map((r: any) => ({
+    ...r,
+    referrer: {
+      cpf: r.referrer_cpf,
+      name: profiles.get(r.referrer_cpf)?.name ?? null,
+      city: profiles.get(r.referrer_cpf)?.city ?? null,
+      client_since: profiles.get(r.referrer_cpf)?.client_since ?? null,
+    },
   }));
 
   return {
-    recommendations: recommendations ?? [],
+    recommendations: recommendationsWithReferrer,
     catalog: catalog ?? [],
     authorizedCpfs: (authorizedCpfs ?? []).map((r) => r.cpf),
+    authorizedProfiles: (authorizedCpfs ?? []).map((r: any) => ({
+      cpf: r.cpf as string,
+      name: (r.name ?? null) as string | null,
+      city: (r.city ?? null) as string | null,
+      client_since: (r.client_since ?? null) as string | null,
+    })),
     rulesText: settings?.value ?? "",
     clients: clientsWithCounts,
     redemptions: redemptions ?? [],
@@ -142,7 +167,11 @@ export async function markMeetingMissed(id: string) {
 
 // Marca que a pessoa recomendada virou cliente: inicia a contagem automática de 90 dias.
 // Se promotedCpf for informado, autoriza esse CPF para acessar o próprio portal.
-export async function markBecameClient(id: string, promotedCpf?: string) {
+export async function markBecameClient(
+  id: string,
+  promotedCpf?: string,
+  profile?: { name?: string; city?: string }
+) {
   await requireAdmin();
   const db = supabaseAdmin();
 
@@ -167,7 +196,10 @@ export async function markBecameClient(id: string, promotedCpf?: string) {
   if (error) return { ok: false, error: "Erro ao atualizar." };
 
   if (cleanPromoted && cleanPromoted.length === 11) {
-    await db.from("authorized_cpfs").upsert({ cpf: cleanPromoted }, { onConflict: "cpf" });
+    const row: Record<string, string> = { cpf: cleanPromoted, client_since: nowIso.slice(0, 10) };
+    if (profile?.name?.trim()) row.name = profile.name.trim();
+    if (profile?.city?.trim()) row.city = profile.city.trim();
+    await db.from("authorized_cpfs").upsert(row, { onConflict: "cpf" });
   }
 
   const { data: client } = await db.from("clients").select("email").eq("cpf", rec.referrer_cpf).maybeSingle();
@@ -234,19 +266,55 @@ export async function cancelRecommendationClient(id: string) {
 
 // ---------- CPFs autorizados ----------
 
+function parseDateInput(raw: string | undefined): string | null {
+  const v = (raw ?? "").trim();
+  if (!v) return null;
+  const br = v.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})$/);
+  if (br) return `${br[3]}-${br[2].padStart(2, "0")}-${br[1].padStart(2, "0")}`;
+  if (/^\d{4}-\d{2}-\d{2}$/.test(v)) return v;
+  return null;
+}
+
+// Cada linha: CPF; Nome; Cidade; Cliente desde (dd/mm/aaaa). Só o CPF é obrigatório.
 export async function addAuthorizedCpfs(rawList: string) {
   await requireAdmin();
   const db = supabaseAdmin();
-  const cpfs = rawList
-    .split("\n")
-    .map((line) => line.replace(/\D/g, ""))
-    .filter((cpf) => cpf.length === 11);
-  if (cpfs.length === 0) return { ok: false, error: "Nenhum CPF válido encontrado." };
+  let count = 0;
 
-  const rows = cpfs.map((cpf) => ({ cpf }));
-  const { error } = await db.from("authorized_cpfs").upsert(rows, { onConflict: "cpf" });
-  if (error) return { ok: false, error: "Erro ao salvar CPFs." };
-  return { ok: true, count: cpfs.length };
+  for (const line of rawList.split("\n")) {
+    const parts = line.split(/[;\t|]/);
+    const cpf = (parts[0] ?? "").replace(/\D/g, "");
+    if (cpf.length !== 11) continue;
+    const row: Record<string, string> = { cpf };
+    if (parts[1]?.trim()) row.name = parts[1].trim();
+    if (parts[2]?.trim()) row.city = parts[2].trim();
+    const since = parseDateInput(parts[3]);
+    if (since) row.client_since = since;
+    const { error } = await db.from("authorized_cpfs").upsert(row, { onConflict: "cpf" });
+    if (error) return { ok: false, error: "Erro ao salvar CPFs. Rodou o SQL novo no Supabase?" };
+    count++;
+  }
+  if (count === 0) return { ok: false, error: "Nenhum CPF válido encontrado." };
+  return { ok: true, count };
+}
+
+// Cadastra ou edita um CPF com nome, cidade e data em que virou cliente.
+export async function saveCpfProfile(input: { cpf: string; name: string; city: string; clientSince: string }) {
+  await requireAdmin();
+  const db = supabaseAdmin();
+  const cpf = input.cpf.replace(/\D/g, "");
+  if (cpf.length !== 11) return { ok: false, error: "CPF inválido (precisa ter 11 números)." };
+  const { error } = await db.from("authorized_cpfs").upsert(
+    {
+      cpf,
+      name: input.name.trim() || null,
+      city: input.city.trim() || null,
+      client_since: parseDateInput(input.clientSince),
+    },
+    { onConflict: "cpf" }
+  );
+  if (error) return { ok: false, error: "Erro ao salvar. Rodou o SQL novo no Supabase?" };
+  return { ok: true };
 }
 
 // ---------- Clientes: saldo manual e cancelamento ----------
