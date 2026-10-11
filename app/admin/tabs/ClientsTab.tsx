@@ -2,6 +2,7 @@
 
 import { useState, useTransition } from "react";
 import { setClientBalance, cancelClientPolicy } from "@/app/actions/admin";
+import { formatCpf, formatTenure } from "@/lib/format";
 import type { AdminData } from "../AdminPanel";
 
 export default function ClientsTab({ data, refresh }: { data: AdminData; refresh: () => void }) {
@@ -42,7 +43,7 @@ export default function ClientsTab({ data, refresh }: { data: AdminData; refresh
           return (
           <li key={c.cpf} className="border-b border-white/5 pb-4 last:border-0">
             <div className="flex items-center justify-between gap-2">
-              <p className="text-sm font-semibold text-bone">{c.cpf}</p>
+              <p className="text-sm font-semibold text-bone">{c.name || formatCpf(c.cpf)}</p>
               <span
                 className={`text-[10px] px-2 py-1 rounded-full border ${
                   !c.active
@@ -55,6 +56,11 @@ export default function ClientsTab({ data, refresh }: { data: AdminData; refresh
                 {!c.active ? "Apólice cancelada" : isBlocked ? "Bloqueado temporariamente" : "Ativo"}
               </span>
             </div>
+            {c.name && <p className="text-xs text-bone/50">CPF {formatCpf(c.cpf)}</p>}
+            <p className="text-xs text-bone/50">
+              {c.city || "cidade não informada"}
+              {c.client_since ? ` · cliente há ${formatTenure(c.client_since)}` : ""}
+            </p>
             <p className="text-xs text-bone/40">
               {c.email || "sem e-mail cadastrado"} · {c.recommendationCount} recomendações cadastradas
             </p>

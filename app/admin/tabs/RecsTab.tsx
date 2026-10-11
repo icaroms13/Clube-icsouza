@@ -9,6 +9,7 @@ import {
   markBecameClient,
   cancelRecommendationClient,
 } from "@/app/actions/admin";
+import { formatCpf, formatTenure, formatDateBr } from "@/lib/format";
 import type { AdminData } from "../AdminPanel";
 
 function formatPhone(phone: string) {
@@ -21,6 +22,8 @@ export default function RecommendationsTab({ data, refresh }: { data: AdminData;
   const [dateDrafts, setDateDrafts] = useState<Record<string, { date: string; time: string }>>({});
   const [becomeClientId, setBecomeClientId] = useState<string | null>(null);
   const [promoteCpf, setPromoteCpf] = useState("");
+  const [promoteName, setPromoteName] = useState("");
+  const [promoteCity, setPromoteCity] = useState("");
 
   function setDraft(id: string, field: "date" | "time", value: string) {
     setDateDrafts((prev) => ({ ...prev, [id]: { ...prev[id], [field]: value } }));
@@ -38,9 +41,11 @@ export default function RecommendationsTab({ data, refresh }: { data: AdminData;
   function handleConfirmBecameClient() {
     if (!becomeClientId) return;
     startTransition(async () => {
-      await markBecameClient(becomeClientId, promoteCpf || undefined);
+      await markBecameClient(becomeClientId, promoteCpf || undefined, { name: promoteName, city: promoteCity });
       setBecomeClientId(null);
       setPromoteCpf("");
+      setPromoteName("");
+      setPromoteCity("");
       refresh();
     });
   }
@@ -70,6 +75,20 @@ export default function RecommendationsTab({ data, refresh }: { data: AdminData;
                   {r.status}
                 </span>
               </div>
+              <div className="mt-2 mb-2 rounded-md border border-gold/50 bg-gold/10 px-3 py-2">
+                <p className="text-[10px] uppercase tracking-widest text-gold/80">Indicado por</p>
+                <p className="text-sm font-semibold text-gold-light">
+                  {r.referrer?.name || "Nome não cadastrado"}
+                </p>
+                <p className="text-xs text-bone/80">
+                  CPF {formatCpf(r.referrer_cpf)} · {r.referrer?.city || "cidade não informada"}
+                </p>
+                <p className="text-xs text-bone/80">
+                  {r.referrer?.client_since
+                    ? `Cliente há ${formatTenure(r.referrer.client_since)} (desde ${formatDateBr(r.referrer.client_since)})`
+                    : "Tempo de cliente não informado (preencha em Config → CPFs)"}
+                </p>
+              </div>
               <p className="text-xs text-bone/40">
                 {formatPhone(r.phone)} · {r.age ?? "-"} anos · {r.city ?? "-"} · {r.profession ?? "-"}
               </p>
@@ -77,7 +96,6 @@ export default function RecommendationsTab({ data, refresh }: { data: AdminData;
                 Relação: {r.relationship ?? "-"} · Filhos: {r.has_children === true ? "Sim" : r.has_children === false ? "Não" : "-"} ·
                 Casado(a): {r.married === true ? "Sim" : r.married === false ? "Não" : "-"}
               </p>
-              <p className="text-xs text-bone/30">Recomendado por: {r.referrer_cpf}</p>
               {r.description && (
                 <p className="text-xs text-bone/60 bg-black/20 border border-gold/20 rounded-md p-2 mt-2">
                   "{r.description}"
@@ -206,11 +224,25 @@ export default function RecommendationsTab({ data, refresh }: { data: AdminData;
               value={promoteCpf}
               onChange={(e) => setPromoteCpf(e.target.value)}
               placeholder="CPF (opcional)"
-              className="w-full bg-black/30 gold-border rounded-md px-3 py-2 text-sm text-bone mb-4"
+              inputMode="numeric"
+              className="w-full bg-black/30 gold-border rounded-md px-3 py-2 text-sm text-bone mb-2"
             />
+            <input
+              value={promoteName}
+              onChange={(e) => setPromoteName(e.target.value)}
+              placeholder="Nome do novo cliente (opcional)"
+              className="w-full bg-black/30 gold-border rounded-md px-3 py-2 text-sm text-bone mb-2"
+            />
+            <input
+              value={promoteCity}
+              onChange={(e) => setPromoteCity(e.target.value)}
+              placeholder="Cidade (opcional)"
+              className="w-full bg-black/30 gold-border rounded-md px-3 py-2 text-sm text-bone mb-1"
+            />
+            <p className="text-[11px] text-bone/40 mb-4">A data de hoje fica salva como o dia em que virou cliente.</p>
             <div className="flex gap-2">
               <button
-                onClick={() => { setBecomeClientId(null); setPromoteCpf(""); }}
+                onClick={() => { setBecomeClientId(null); setPromoteCpf(""); setPromoteName(""); setPromoteCity(""); }}
                 className="flex-1 border border-gold/30 rounded-md py-2 text-sm text-bone"
               >
                 Cancelar

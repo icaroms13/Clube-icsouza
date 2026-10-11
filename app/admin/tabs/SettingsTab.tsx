@@ -1,7 +1,8 @@
 "use client";
 
 import { useState, useTransition } from "react";
-import { addAuthorizedCpfs, setRulesText, createPromotion, endPromotion } from "@/app/actions/admin";
+import { addAuthorizedCpfs, saveCpfProfile, setRulesText, createPromotion, endPromotion } from "@/app/actions/admin";
+import { formatCpf, formatTenure, formatDateBr } from "@/lib/format";
 import type { AdminData } from "../AdminPanel";
 
 export default function SettingsTab({ data, refresh }: { data: AdminData; refresh: () => void }) {
@@ -9,6 +10,31 @@ export default function SettingsTab({ data, refresh }: { data: AdminData; refres
 
   const [cpfList, setCpfList] = useState("");
   const [cpfMsg, setCpfMsg] = useState("");
+  const [formCpf, setFormCpf] = useState("");
+  const [formName, setFormName] = useState("");
+  const [formCity, setFormCity] = useState("");
+  const [formSince, setFormSince] = useState("");
+  const [formMsg, setFormMsg] = useState("");
+
+  function handleSaveProfile() {
+    setFormMsg("");
+    startTransition(async () => {
+      const result = await saveCpfProfile({ cpf: formCpf, name: formName, city: formCity, clientSince: formSince });
+      if (!result.ok) { setFormMsg(result.error ?? "Erro."); return; }
+      setFormMsg("Salvo!");
+      setFormCpf(""); setFormName(""); setFormCity(""); setFormSince("");
+      refresh();
+    });
+  }
+
+  function loadForEdit(p: { cpf: string; name: string | null; city: string | null; client_since: string | null }) {
+    setFormCpf(p.cpf);
+    setFormName(p.name ?? "");
+    setFormCity(p.city ?? "");
+    setFormSince(p.client_since ?? "");
+    setFormMsg("Editando. Altere os campos e toque em Salvar.");
+    if (typeof window !== "undefined") window.scrollTo({ top: 0, behavior: "smooth" });
+  }
 
   const [rulesText, setRulesTextValue] = useState(data.rulesText);
   const [rulesMsg, setRulesMsg] = useState("");
@@ -63,19 +89,81 @@ export default function SettingsTab({ data, refresh }: { data: AdminData; refres
       <div className="card p-6">
         <h2 className="font-display text-xl text-bone mb-1">CPFs autorizados</h2>
         <p className="text-xs text-bone/50 mb-4">
-          {data.authorizedCpfs.length} CPF(s) autorizado(s) hoje. Cole novos CPFs abaixo, um por linha.
+          {data.authorizedCpfs.length} CPF(s) autorizado(s) hoje. Preencha nome, cidade e a data em que a pessoa virou
+          cliente: esses dados aparecem em cada recomendação e no Dashboard. Digitar um CPF que já existe atualiza os dados dele.
         </p>
-        <textarea
-          value={cpfList}
-          onChange={(e) => setCpfList(e.target.value)}
-          placeholder={"12345678900\n98765432100"}
-          rows={4}
-          className="w-full bg-black/30 gold-border rounded-md px-4 py-3 text-bone placeholder:text-bone/30 focus:border-gold font-mono text-sm"
-        />
-        {cpfMsg && <p className="text-sm text-gold mt-2">{cpfMsg}</p>}
-        <button disabled={isPending} onClick={handleAddCpfs} className="mt-3 bg-gold text-ink font-semibold rounded-md px-4 py-2 text-sm">
-          Adicionar CPFs
+
+        <div className="space-y-2">
+          <input
+            value={formCpf}
+            onChange={(e) => setFormCpf(e.target.value)}
+            placeholder="CPF (11 números)"
+            inputMode="numeric"
+            className="w-full bg-black/30 gold-border rounded-md px-3 py-2 text-sm text-bone"
+          />
+          <input
+            value={formName}
+            onChange={(e) => setFormName(e.target.value)}
+            placeholder="Nome completo"
+            className="w-full bg-black/30 gold-border rounded-md px-3 py-2 text-sm text-bone"
+          />
+          <input
+            value={formCity}
+            onChange={(e) => setFormCity(e.target.value)}
+            placeholder="Cidade"
+            className="w-full bg-black/30 gold-border rounded-md px-3 py-2 text-sm text-bone"
+          />
+          <label className="block text-xs text-bone/50">
+            Cliente desde (data em que virou cliente)
+            <input
+              type="date"
+              value={formSince}
+              onChange={(e) => setFormSince(e.target.value)}
+              className="mt-1 w-full bg-black/30 gold-border rounded-md px-3 py-2 text-sm text-bone"
+            />
+          </label>
+        </div>
+        {formMsg && <p className="text-sm text-gold mt-2">{formMsg}</p>}
+        <button disabled={isPending} onClick={handleSaveProfile} className="mt-3 bg-gold text-ink font-semibold rounded-md px-4 py-2 text-sm">
+          Salvar CPF
         </button>
+
+        <details className="mt-5">
+          <summary className="text-xs text-bone/60 cursor-pointer">Cadastrar vários de uma vez</summary>
+          <p className="text-xs text-bone/40 mt-2 mb-2">
+            Uma pessoa por linha, separando com ponto e vírgula: CPF; Nome; Cidade; Data (dd/mm/aaaa). Só o CPF é obrigatório.
+          </p>
+          <textarea
+            value={cpfList}
+            onChange={(e) => setCpfList(e.target.value)}
+            placeholder={"12345678900; Maria Silva; Belo Horizonte; 15/03/2024\n98765432100; João Souza; Contagem; 02/10/2025"}
+            rows={4}
+            className="w-full bg-black/30 gold-border rounded-md px-4 py-3 text-bone placeholder:text-bone/30 focus:border-gold font-mono text-xs"
+          />
+          {cpfMsg && <p className="text-sm text-gold mt-2">{cpfMsg}</p>}
+          <button disabled={isPending} onClick={handleAddCpfs} className="mt-3 border border-gold/40 text-bone rounded-md px-4 py-2 text-sm">
+            Adicionar lista
+          </button>
+        </details>
+
+        {data.authorizedProfiles.length > 0 && (
+          <ul className="mt-5 space-y-2">
+            {data.authorizedProfiles.map((p) => (
+              <li key={p.cpf} className="flex items-center justify-between gap-2 border-b border-white/5 pb-2">
+                <div className="min-w-0">
+                  <p className="text-sm text-bone truncate">{p.name || "Sem nome"}</p>
+                  <p className="text-xs text-bone/40">
+                    {formatCpf(p.cpf)} · {p.city || "sem cidade"}
+                    {p.client_since ? ` · cliente há ${formatTenure(p.client_since)} (${formatDateBr(p.client_since)})` : " · sem data"}
+                  </p>
+                </div>
+                <button onClick={() => loadForEdit(p)} className="shrink-0 text-xs border border-gold/30 text-bone rounded-md px-3 py-1.5">
+                  Editar
+                </button>
+              </li>
+            ))}
+          </ul>
+        )}
       </div>
 
       <div className="card p-6">
