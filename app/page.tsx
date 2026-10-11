@@ -2,7 +2,8 @@
 
 import { useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
-import { checkCpf, createPassword, login } from "@/app/actions/auth";
+import { checkCpf, createPassword, login, getPublicRulesText } from "@/app/actions/auth";
+import RulesModal from "@/components/RulesModal";
 
 type Stage = "cpf" | "set_password" | "login_password";
 
@@ -16,6 +17,15 @@ export default function HomePage() {
   const [confirmPassword, setConfirmPassword] = useState("");
   const [email, setEmail] = useState("");
   const [error, setError] = useState("");
+  const [showRules, setShowRules] = useState(false);
+  const [rulesText, setRulesText] = useState("");
+
+  function openRules() {
+    setShowRules(true);
+    if (!rulesText) {
+      getPublicRulesText().then(setRulesText).catch(() => setRulesText("Não foi possível carregar as regras agora. Tente de novo."));
+    }
+  }
 
   function handleCpfSubmit(e: React.FormEvent) {
     e.preventDefault();
@@ -166,7 +176,17 @@ export default function HomePage() {
             </form>
           )}
         </div>
+
+        <button
+          type="button"
+          onClick={openRules}
+          className="block mx-auto mt-6 text-xs text-bone/50 hover:text-bone/80 underline underline-offset-4"
+        >
+          Ver regras do Clube
+        </button>
       </div>
+
+      {showRules && <RulesModal text={rulesText} onClose={() => setShowRules(false)} />}
     </main>
   );
 }
