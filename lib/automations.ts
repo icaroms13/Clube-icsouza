@@ -33,6 +33,25 @@ export async function notifyAdminNewRedemption(clientCpf: string, itemName: stri
   await sendEmail(ADMIN_EMAIL, "Novo resgate solicitado", html);
 }
 
+export async function notifyAdminNewClient(clientCpf: string, clientEmail: string | null) {
+  const html = wrap(
+    "Novo cliente ativou o acesso",
+    `O cliente <b>${clientCpf}</b> (${clientEmail || "sem e-mail"}) acabou de criar a senha e entrou no Clube pela primeira vez.`
+  );
+  await sendEmail(ADMIN_EMAIL, "Novo cliente ativou o acesso ao Clube", html);
+}
+
+export async function emailWelcomeClient(to: string | null) {
+  if (!to || !to.includes("@")) return;
+  const subject = "Bem-vindo ao Clube de Recomendações IC Souza";
+  const html = wrap(
+    "Seu acesso está ativo! 🎉",
+    `Seja bem-vindo ao Clube. A cada pessoa que você recomendar, você acumula pontos e troca por brindes no catálogo. Entre no portal, leia as regras e faça sua primeira recomendação.`
+  );
+  const result = await sendEmail(to, subject, html);
+  if (result.ok) await logEmail(to, subject, "auto");
+}
+
 // ---------- Automações para o cliente (respeitam o toggle salvo no banco) ----------
 
 async function isAutomationOn(key: string): Promise<{ on: boolean; subject: string }> {
