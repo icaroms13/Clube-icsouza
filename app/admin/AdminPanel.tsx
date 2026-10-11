@@ -3,7 +3,7 @@
 import { useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { adminLogout, getAdminData } from "@/app/actions/admin";
-import RecommendationsTab from "./tabs/RecommendationsTab";
+import RecsTab from "./tabs/RecsTab";
 import ClientsTab from "./tabs/ClientsTab";
 import RedemptionsTab from "./tabs/RedemptionsTab";
 import CatalogTab from "./tabs/CatalogTab";
@@ -85,7 +85,7 @@ export default function AdminPanel({ initialData }: { initialData: AdminData }) 
           })}
         </div>
 
-        {tab === "recs" && <RecommendationsTab data={data} refresh={refresh} />}
+        {tab === "recs" && <RecsTab data={data} refresh={refresh} />}
         {tab === "clients" && <ClientsTab data={data} refresh={refresh} />}
         {tab === "redeem" && <RedemptionsTab data={data} refresh={refresh} />}
         {tab === "catalog" && <CatalogTab data={data} refresh={refresh} />}
