@@ -8,6 +8,8 @@ import {
   emailOnPointsAdded,
   emailOnNewCatalogItem,
   emailOnRecommendationCancelled,
+  emailInviteClient,
+  emailInviteBatch,
   sendManualCampaign as sendCampaignEmails,
 } from "@/lib/automations";
 import { creditPoints } from "@/lib/points";
@@ -49,7 +51,7 @@ export async function getAdminData() {
   ] = await Promise.all([
     db.from("recommendations").select("*").order("created_at", { ascending: false }),
     db.from("catalog_items").select("*").order("points", { ascending: true }),
-    db.from("authorized_cpfs").select("cpf, name, city, client_since, created_at").order("created_at", { ascending: false }),
+    db.from("authorized_cpfs").select("cpf, name, city, client_since, email, welcome_sent_at, created_at").order("created_at", { ascending: false }),
     db.from("app_settings").select("value").eq("key", "rules_text").maybeSingle(),
     db.from("clients").select("cpf, points, email, active, last_referral_at, blocked_until, rules_accepted_at, created_at").order("created_at", { ascending: false }),
     db.from("redemptions").select("*").order("created_at", { ascending: false }),
@@ -94,6 +96,8 @@ export async function getAdminData() {
       name: (r.name ?? null) as string | null,
       city: (r.city ?? null) as string | null,
       client_since: (r.client_since ?? null) as string | null,
+      email: (r.email ?? null) as string | null,
+      welcome_sent_at: (r.welcome_sent_at ?? null) as string | null,
     })),
     rulesText: settings?.value ?? "",
     clients: clientsWithCounts,
@@ -275,45 +279,127 @@ function parseDateInput(raw: string | undefined): string | null {
   return null;
 }
 
-// Cada linha: CPF; Nome; Cidade; Cliente desde (dd/mm/aaaa). Só o CPF é obrigatório.
-export async function addAuthorizedCpfs(rawList: string) {
-  await requireAdmin();
-  const db = supabaseAdmin();
-  let count = 0;
-
-  for (const line of rawList.split("\n")) {
-    const parts = line.split(/[;\t|]/);
-    const cpf = (parts[0] ?? "").replace(/\D/g, "");
-    if (cpf.length !== 11) continue;
-    const row: Record<string, string> = { cpf };
-    if (parts[1]?.trim()) row.name = parts[1].trim();
-    if (parts[2]?.trim()) row.city = parts[2].trim();
-    const since = parseDateInput(parts[3]);
-    if (since) row.client_since = since;
-    const { error } = await db.from("authorized_cpfs").upsert(row, { onConflict: "cpf" });
-    if (error) return { ok: false, error: "Erro ao salvar CPFs. Rodou o SQL novo no Supabase?" };
-    count++;
-  }
-  if (count === 0) return { ok: false, error: "Nenhum CPF válido encontrado." };
-  return { ok: true, count };
+function isEmail(v: string | undefined) {
+  const t = (v ?? "").trim();
+  return t.includes("@") && t.includes(".") && !/\s/.test(t);
 }
 
-// Cadastra ou edita um CPF com nome, cidade e data em que virou cliente.
-export async function saveCpfProfile(input: { cpf: string; name: string; city: string; clientSince: string }) {
+// Cada linha: CPF; Nome; Cidade; Cliente desde (dd/mm/aaaa); E-mail. Só o CPF é obrigatório.
+// O e-mail pode estar em qualquer posição (é reconhecido pelo @). Quem tem e-mail e ainda não
+// recebeu o convite recebe o e-mail de boas-vindas com o passo a passo.
+export async function addAuthorizedCpfs(rawList: string, sendWelcome: boolean = true) {
+  await requireAdmin();
+  const db = supabaseAdmin();
+
+  type Row = { cpf: string; name?: string; city?: string; client_since?: string; email?: string };
+  const rows: Row[] = [];
+  for (const line of rawList.split("\n")) {
+    const parts = line.split(/[;\t|]/).map((p) => p.trim());
+    const email = parts.find((p) => p.includes("@"));
+    const rest = parts.filter((p) => p !== email);
+    const cpf = (rest[0] ?? "").replace(/\D/g, "");
+    if (cpf.length !== 11) continue;
+    const row: Row = { cpf };
+    if (rest[1]) row.name = rest[1];
+    if (rest[2]) row.city = rest[2];
+    const since = parseDateInput(rest[3]);
+    if (since) row.client_since = since;
+    if (isEmail(email)) row.email = (email as string).toLowerCase();
+    rows.push(row);
+  }
+  if (rows.length === 0) return { ok: false, error: "Nenhum CPF válido encontrado." };
+
+  const cpfs = rows.map((r) => r.cpf);
+  const [{ data: existingAuth }, { data: existingClients }] = await Promise.all([
+    db.from("authorized_cpfs").select("cpf, welcome_sent_at").in("cpf", cpfs),
+    db.from("clients").select("cpf").in("cpf", cpfs),
+  ]);
+  const alreadyInvited = new Set((existingAuth ?? []).filter((a: any) => a.welcome_sent_at).map((a: any) => a.cpf));
+  const alreadyClients = new Set((existingClients ?? []).map((c: any) => c.cpf));
+
+  for (const row of rows) {
+    const { error } = await db.from("authorized_cpfs").upsert(row, { onConflict: "cpf" });
+    if (error) return { ok: false, error: "Erro ao salvar CPFs. Rodou o SQL novo no Supabase?" };
+  }
+
+  let invited = 0;
+  let failed = 0;
+  let firstError = "";
+  const withEmail = rows.filter((r) => r.email);
+  if (sendWelcome && withEmail.length > 0) {
+    const targets = withEmail.filter((r) => !alreadyInvited.has(r.cpf) && !alreadyClients.has(r.cpf));
+    if (targets.length > 0) {
+      const results = await emailInviteBatch(targets.map((t) => ({ to: t.email as string, name: t.name ?? null })));
+      const sentEmails = new Set(results.filter((r) => r.ok).map((r) => r.to));
+      const sentCpfs = targets.filter((t) => sentEmails.has(t.email as string)).map((t) => t.cpf);
+      invited = sentCpfs.length;
+      failed = targets.length - invited;
+      firstError = results.find((r) => !r.ok)?.error ?? "";
+      if (sentCpfs.length) {
+        await db.from("authorized_cpfs").update({ welcome_sent_at: new Date().toISOString() }).in("cpf", sentCpfs);
+      }
+    }
+  }
+
+  return {
+    ok: true,
+    count: rows.length,
+    invited,
+    failed,
+    withoutEmail: rows.length - withEmail.length,
+    emailError: firstError,
+  };
+}
+
+// Cadastra ou edita um CPF (nome, cidade, data em que virou cliente e e-mail).
+// Se sendWelcome estiver marcado e houver e-mail, dispara o e-mail de boas-vindas com o passo a passo.
+export async function saveCpfProfile(input: {
+  cpf: string;
+  name: string;
+  city: string;
+  clientSince: string;
+  email: string;
+  sendWelcome: boolean;
+}) {
   await requireAdmin();
   const db = supabaseAdmin();
   const cpf = input.cpf.replace(/\D/g, "");
   if (cpf.length !== 11) return { ok: false, error: "CPF inválido (precisa ter 11 números)." };
+  const email = input.email.trim().toLowerCase();
+  if (email && !isEmail(email)) return { ok: false, error: "E-mail inválido." };
+
   const { error } = await db.from("authorized_cpfs").upsert(
     {
       cpf,
       name: input.name.trim() || null,
       city: input.city.trim() || null,
       client_since: parseDateInput(input.clientSince),
+      email: email || null,
     },
     { onConflict: "cpf" }
   );
   if (error) return { ok: false, error: "Erro ao salvar. Rodou o SQL novo no Supabase?" };
+
+  if (!input.sendWelcome) return { ok: true, emailStatus: "skipped" as const };
+  if (!email) return { ok: true, emailStatus: "no_email" as const };
+
+  const result = await emailInviteClient(email, input.name.trim() || null);
+  if (!result.ok) return { ok: true, emailStatus: "failed" as const, emailError: result.error };
+  await db.from("authorized_cpfs").update({ welcome_sent_at: new Date().toISOString() }).eq("cpf", cpf);
+  return { ok: true, emailStatus: "sent" as const };
+}
+
+// Reenvia o e-mail de boas-vindas de um CPF já cadastrado (que tenha e-mail).
+export async function resendInvite(cpfInput: string) {
+  await requireAdmin();
+  const db = supabaseAdmin();
+  const cpf = cpfInput.replace(/\D/g, "");
+  const { data: row } = await db.from("authorized_cpfs").select("cpf, name, email").eq("cpf", cpf).maybeSingle();
+  if (!row) return { ok: false, error: "CPF não encontrado." };
+  if (!row.email) return { ok: false, error: "Esse CPF está sem e-mail. Toque em Editar e preencha." };
+  const result = await emailInviteClient(row.email, row.name ?? null);
+  if (!result.ok) return { ok: false, error: result.error || "Falha no envio." };
+  await db.from("authorized_cpfs").update({ welcome_sent_at: new Date().toISOString() }).eq("cpf", cpf);
   return { ok: true };
 }
 
