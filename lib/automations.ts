@@ -1,4 +1,4 @@
-import { sendEmail } from "@/lib/resend";
+import { sendEmail, sendEmailBatch } from "@/lib/resend";
 import { supabaseAdmin } from "@/lib/supabase-admin";
 
 const ADMIN_EMAIL = process.env.ADMIN_NOTIFY_EMAIL || "icaromsouza13@gmail.com";
@@ -52,6 +52,50 @@ export async function notifyAdminNewClient(clientCpf: string, clientEmail: strin
     `O cliente <b>${clientCpf}</b> (${clientEmail || "sem e-mail"}) acabou de criar a senha e entrou no Clube pela primeira vez.`
   );
   await sendEmail(ADMIN_EMAIL, "Novo cliente ativou o acesso ao Clube", html);
+}
+
+// ---------- Convite de boas-vindas (disparado quando o admin cadastra o cliente) ----------
+
+export function inviteSubject() {
+  return "Seu acesso ao Clube de Recomendações IC Souza está liberado";
+}
+
+export function inviteHtml(name: string | null) {
+  const url = portalUrl();
+  const first = (name ?? "").trim().split(/\s+/)[0];
+  const hello = first ? `Olá, <b>${first}</b>!` : "Olá!";
+  const step = (n: number, text: string) =>
+    `<tr><td valign="top" style="padding:6px 12px 6px 0;color:#c8a24d;font-weight:bold;font-size:15px;">${n}</td><td style="padding:6px 0;color:#cfc9bb;font-size:14px;line-height:1.6;">${text}</td></tr>`;
+  const link = url ? ` <span style="color:#8a8478;">(${url})</span>` : "";
+  const body = `
+    <p style="margin:0 0 14px;">${hello} Seu acesso ao <b>Clube de Recomendações IC Souza</b> está liberado. Veja como entrar:</p>
+    <table role="presentation" cellpadding="0" cellspacing="0" style="margin:0 0 16px;">
+      ${step(1, `Toque no botão <b>Acessar o portal</b> abaixo${link}.`)}
+      ${step(2, "Digite o seu <b>CPF</b> (somente os números).")}
+      ${step(3, "No primeiro acesso, <b>crie uma senha</b> (mínimo de 6 caracteres) e informe o seu <b>e-mail</b>.")}
+      ${step(4, "Leia as regras do Clube e toque em <b>“Li, estou de acordo”</b>. Isso só é pedido na primeira vez.")}
+      ${step(5, "Pronto! Faça a sua primeira <b>recomendação</b>: informe o nome e o telefone de quem você quer apresentar.")}
+    </table>
+    <p style="margin:0 0 6px;"><b>Como você ganha pontos</b></p>
+    <p style="margin:0 0 14px;">+10 pontos quando a reunião com a pessoa que você recomendou acontece, e +100 pontos quando ela vira cliente e completa 90 dias. Os pontos podem ser trocados por brindes no catálogo do portal.</p>
+    <p style="margin:0;">Qualquer dúvida, é só falar com o Ícaro.</p>`;
+  return wrap("Seu acesso está liberado", body);
+}
+
+export async function emailInviteClient(to: string, name: string | null) {
+  const subject = inviteSubject();
+  const result = await sendEmail(to, subject, inviteHtml(name));
+  if (result.ok) await logEmail(to, subject, "auto");
+  return result;
+}
+
+export async function emailInviteBatch(items: { to: string; name: string | null }[]) {
+  const subject = inviteSubject();
+  const results = await sendEmailBatch(items.map((i) => ({ to: i.to, subject, html: inviteHtml(i.name) })));
+  const db = supabaseAdmin();
+  const okRows = results.filter((r) => r.ok).map((r) => ({ to_email: r.to, subject, type: "auto" }));
+  if (okRows.length) await db.from("email_log").insert(okRows);
+  return results;
 }
 
 export async function emailWelcomeClient(to: string | null) {
