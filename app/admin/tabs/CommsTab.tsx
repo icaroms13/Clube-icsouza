@@ -77,7 +77,7 @@ export default function CommsTab({ data, refresh }: { data: AdminData; refresh: 
         <input
           value={subject}
           onChange={(e) => setSubject(e.target.value)}
-          placeholder="Ex: Que tal indicar alguém essa semana?"
+          placeholder="Ex: Que tal recomendar alguém essa semana?"
           className="w-full bg-black/30 gold-border rounded-md px-3 py-2 text-sm text-bone mb-3 mt-1"
         />
 

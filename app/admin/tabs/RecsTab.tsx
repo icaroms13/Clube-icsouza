@@ -76,7 +76,7 @@ export default function RecommendationsTab({ data, refresh }: { data: AdminData;
                 </span>
               </div>
               <div className="mt-2 mb-2 rounded-md border border-gold/50 bg-gold/10 px-3 py-2">
-                <p className="text-[10px] uppercase tracking-widest text-gold/80">Indicado por</p>
+                <p className="text-[10px] uppercase tracking-widest text-gold/80">Recomendado por</p>
                 <p className="text-sm font-semibold text-gold-light">
                   {r.referrer?.name || "Nome não cadastrado"}
                 </p>

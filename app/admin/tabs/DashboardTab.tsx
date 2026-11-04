@@ -291,7 +291,7 @@ export default function DashboardTab({ data }: { data: AdminData }) {
       if (slot) slot.value++;
     });
 
-    // por cliente que indica
+    // por cliente que recomenda
     const byRef = new Map<string, { cpf: string; name: string; city: string; recs: number; meetings: number; conv: number; since: string | null }>();
     recs.forEach((r) => {
       const ref = r.referrer ?? {};
@@ -476,7 +476,7 @@ export default function DashboardTab({ data }: { data: AdminData }) {
         )}
       </Section>
 
-      <Section title="Ranking de quem mais indica" subtitle="Clientes ordenados por quantas pessoas viraram cliente e quantas recomendaram.">
+      <Section title="Ranking de quem mais recomenda" subtitle="Clientes ordenados por quantas pessoas viraram cliente e quantas recomendaram.">
         {m.referrers.length === 0 ? (
           <Empty />
         ) : (
@@ -488,7 +488,7 @@ export default function DashboardTab({ data }: { data: AdminData }) {
                     <span className="text-gold mr-2">{idx + 1}º</span>
                     {r.name}
                   </p>
-                  <p className="text-xs text-bone/60 shrink-0">{r.recs} indicações</p>
+                  <p className="text-xs text-bone/60 shrink-0">{r.recs} recomendações</p>
                 </div>
                 <p className="text-xs text-bone/40">
                   {r.city || "cidade não informada"}
@@ -506,8 +506,8 @@ export default function DashboardTab({ data }: { data: AdminData }) {
       <Section title="Clientes do clube">
         <div className="grid grid-cols-2 sm:grid-cols-3 gap-2 mb-4">
           <Kpi label="Clientes ativos" value={m.activeClients} hint={`${m.clientsTotal} cadastrados no portal`} />
-          <Kpi label="Indicaram no último mês" value={m.active30} hint={`${pct(m.active30, m.activeClients)}% dos ativos`} color={GREEN} />
-          <Kpi label="Nunca indicaram" value={m.neverReferred} hint="oportunidade de reativar" color={RED} />
+          <Kpi label="Recomendaram no último mês" value={m.active30} hint={`${pct(m.active30, m.activeClients)}% dos ativos`} color={GREEN} />
+          <Kpi label="Nunca recomendaram" value={m.neverReferred} hint="oportunidade de reativar" color={RED} />
           <Kpi label="Autorizados sem login" value={m.invitedNoSignup} hint="ainda não criaram senha" />
           <Kpi label="Pontos em circulação" value={m.pointsInCirculation.toLocaleString("pt-BR")} hint="saldo dos clientes ativos" color={GOLD} />
           <Kpi label="Tempo médio de cliente" value={m.avgTenureDays !== null ? formatTenure(new Date(Date.now() - m.avgTenureDays * 86400000).toISOString()) : "—"} hint="com data informada em Config" />
@@ -525,8 +525,8 @@ export default function DashboardTab({ data }: { data: AdminData }) {
         <BarList items={m.relationships} color={GREEN} />
       </Section>
 
-      <Section title="Cidades dos seus clientes" subtitle="Onde moram os clientes que mais indicam e a base cadastrada em Config.">
-        <p className="text-xs text-bone/50 mb-2">Clientes que indicaram no período</p>
+      <Section title="Cidades dos seus clientes" subtitle="Onde moram os clientes que mais recomendam e a base cadastrada em Config.">
+        <p className="text-xs text-bone/50 mb-2">Clientes que recomendaram no período</p>
         <BarList items={m.refCities} />
         <p className="text-xs text-bone/50 mt-5 mb-2">Todos os CPFs cadastrados</p>
         <BarList items={m.clientCities} color={BLUE} />

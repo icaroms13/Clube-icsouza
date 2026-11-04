@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useTransition } from "react";
-import { addAuthorizedCpfs, saveCpfProfile, setRulesText, createPromotion, endPromotion } from "@/app/actions/admin";
+import { addAuthorizedCpfs, saveCpfProfile, resendInvite, setRulesText, createPromotion, endPromotion } from "@/app/actions/admin";
 import { formatCpf, formatTenure, formatDateBr } from "@/lib/format";
 import type { AdminData } from "../AdminPanel";
 
@@ -14,24 +14,45 @@ export default function SettingsTab({ data, refresh }: { data: AdminData; refres
   const [formName, setFormName] = useState("");
   const [formCity, setFormCity] = useState("");
   const [formSince, setFormSince] = useState("");
+  const [formEmail, setFormEmail] = useState("");
+  const [formSend, setFormSend] = useState(true);
   const [formMsg, setFormMsg] = useState("");
+  const [bulkSend, setBulkSend] = useState(true);
 
   function handleSaveProfile() {
     setFormMsg("");
     startTransition(async () => {
-      const result = await saveCpfProfile({ cpf: formCpf, name: formName, city: formCity, clientSince: formSince });
+      const result: any = await saveCpfProfile({
+        cpf: formCpf, name: formName, city: formCity, clientSince: formSince, email: formEmail, sendWelcome: formSend,
+      });
       if (!result.ok) { setFormMsg(result.error ?? "Erro."); return; }
-      setFormMsg("Salvo!");
-      setFormCpf(""); setFormName(""); setFormCity(""); setFormSince("");
+      const st = result.emailStatus;
+      setFormMsg(
+        st === "sent" ? "Salvo! E-mail de boas-vindas enviado." :
+        st === "no_email" ? "Salvo, mas sem e-mail não dá para enviar o convite." :
+        st === "failed" ? `Salvo, mas o e-mail falhou: ${result.emailError ?? "erro"}. Use Reenviar na lista.` :
+        "Salvo!"
+      );
+      setFormCpf(""); setFormName(""); setFormCity(""); setFormSince(""); setFormEmail("");
       refresh();
     });
   }
 
-  function loadForEdit(p: { cpf: string; name: string | null; city: string | null; client_since: string | null }) {
+  function handleResend(cpf: string) {
+    setFormMsg("");
+    startTransition(async () => {
+      const result = await resendInvite(cpf);
+      setFormMsg(result.ok ? "Convite reenviado!" : result.error ?? "Erro.");
+      refresh();
+    });
+  }
+
+  function loadForEdit(p: { cpf: string; name: string | null; city: string | null; client_since: string | null; email: string | null }) {
     setFormCpf(p.cpf);
     setFormName(p.name ?? "");
     setFormCity(p.city ?? "");
     setFormSince(p.client_since ?? "");
+    setFormEmail(p.email ?? "");
     setFormMsg("Editando. Altere os campos e toque em Salvar.");
     if (typeof window !== "undefined") window.scrollTo({ top: 0, behavior: "smooth" });
   }
@@ -66,9 +87,13 @@ export default function SettingsTab({ data, refresh }: { data: AdminData; refres
   function handleAddCpfs() {
     setCpfMsg("");
     startTransition(async () => {
-      const result = await addAuthorizedCpfs(cpfList);
+      const result: any = await addAuthorizedCpfs(cpfList, bulkSend);
       if (!result.ok) { setCpfMsg(result.error ?? "Erro."); return; }
-      setCpfMsg(`${result.count} CPF(s) autorizado(s).`);
+      let msg = `${result.count} CPF(s) autorizado(s).`;
+      if (result.invited) msg += ` ${result.invited} convite(s) enviado(s).`;
+      if (result.failed) msg += ` ${result.failed} falhou(aram)${result.emailError ? ` (${result.emailError})` : ""}.`;
+      if (bulkSend && result.withoutEmail) msg += ` ${result.withoutEmail} sem e-mail (sem convite).`;
+      setCpfMsg(msg);
       setCpfList("");
       refresh();
     });
@@ -113,6 +138,14 @@ export default function SettingsTab({ data, refresh }: { data: AdminData; refres
             placeholder="Cidade"
             className="w-full bg-black/30 gold-border rounded-md px-3 py-2 text-sm text-bone"
           />
+          <input
+            value={formEmail}
+            onChange={(e) => setFormEmail(e.target.value)}
+            placeholder="E-mail do cliente"
+            type="email"
+            inputMode="email"
+            className="w-full bg-black/30 gold-border rounded-md px-3 py-2 text-sm text-bone"
+          />
           <label className="block text-xs text-bone/50">
             Cliente desde (data em que virou cliente)
             <input
@@ -123,6 +156,10 @@ export default function SettingsTab({ data, refresh }: { data: AdminData; refres
             />
           </label>
         </div>
+        <label className="flex items-center gap-2 text-xs text-bone/70 mt-3">
+          <input type="checkbox" checked={formSend} onChange={(e) => setFormSend(e.target.checked)} />
+          Enviar e-mail de boas-vindas com o passo a passo
+        </label>
         {formMsg && <p className="text-sm text-gold mt-2">{formMsg}</p>}
         <button disabled={isPending} onClick={handleSaveProfile} className="mt-3 bg-gold text-ink font-semibold rounded-md px-4 py-2 text-sm">
           Salvar CPF
@@ -131,15 +168,19 @@ export default function SettingsTab({ data, refresh }: { data: AdminData; refres
         <details className="mt-5">
           <summary className="text-xs text-bone/60 cursor-pointer">Cadastrar vários de uma vez</summary>
           <p className="text-xs text-bone/40 mt-2 mb-2">
-            Uma pessoa por linha, separando com ponto e vírgula: CPF; Nome; Cidade; Data (dd/mm/aaaa). Só o CPF é obrigatório.
+            Uma pessoa por linha, separando com ponto e vírgula: CPF; Nome; Cidade; Data (dd/mm/aaaa); E-mail. Só o CPF é obrigatório. Quem tiver e-mail recebe o convite de boas-vindas (quem já recebeu não recebe de novo).
           </p>
           <textarea
             value={cpfList}
             onChange={(e) => setCpfList(e.target.value)}
-            placeholder={"12345678900; Maria Silva; Belo Horizonte; 15/03/2024\n98765432100; João Souza; Contagem; 02/10/2025"}
+            placeholder={"12345678900; Maria Silva; Belo Horizonte; 15/03/2024; maria@email.com\n98765432100; João Souza; Contagem; 02/10/2025; joao@email.com"}
             rows={4}
             className="w-full bg-black/30 gold-border rounded-md px-4 py-3 text-bone placeholder:text-bone/30 focus:border-gold font-mono text-xs"
           />
+          <label className="flex items-center gap-2 text-xs text-bone/70 mt-2">
+            <input type="checkbox" checked={bulkSend} onChange={(e) => setBulkSend(e.target.checked)} />
+            Enviar e-mail de boas-vindas para quem tiver e-mail
+          </label>
           {cpfMsg && <p className="text-sm text-gold mt-2">{cpfMsg}</p>}
           <button disabled={isPending} onClick={handleAddCpfs} className="mt-3 border border-gold/40 text-bone rounded-md px-4 py-2 text-sm">
             Adicionar lista
@@ -156,10 +197,21 @@ export default function SettingsTab({ data, refresh }: { data: AdminData; refres
                     {formatCpf(p.cpf)} · {p.city || "sem cidade"}
                     {p.client_since ? ` · cliente há ${formatTenure(p.client_since)} (${formatDateBr(p.client_since)})` : " · sem data"}
                   </p>
+                  <p className="text-xs text-bone/40 truncate">
+                    {p.email ? p.email : "sem e-mail"}
+                    {p.email ? (p.welcome_sent_at ? ` · convite enviado em ${formatDateBr(p.welcome_sent_at)}` : " · convite não enviado") : ""}
+                  </p>
                 </div>
-                <button onClick={() => loadForEdit(p)} className="shrink-0 text-xs border border-gold/30 text-bone rounded-md px-3 py-1.5">
-                  Editar
-                </button>
+                <div className="shrink-0 flex flex-col gap-1">
+                  <button onClick={() => loadForEdit(p)} className="text-xs border border-gold/30 text-bone rounded-md px-3 py-1.5">
+                    Editar
+                  </button>
+                  {p.email && (
+                    <button disabled={isPending} onClick={() => handleResend(p.cpf)} className="text-xs border border-gold/30 text-gold rounded-md px-3 py-1.5">
+                      {p.welcome_sent_at ? "Reenviar" : "Enviar convite"}
+                    </button>
+                  )}
+                </div>
               </li>
             ))}
           </ul>
