@@ -2,7 +2,7 @@ import type { Metadata } from "next";
 import "./globals.css";
 
 export const metadata: Metadata = {
-  title: "Clube de Indicações — IC Souza",
+  title: "Clube de Recomendações — IC Souza",
   description: "Indique, acumule pontos e resgate prêmios.",
 };
 
