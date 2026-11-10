@@ -529,24 +529,47 @@ export async function toggleAutomation(key: string) {
   return { ok: true };
 }
 
-export async function sendManualCampaign(audience: "all" | "inactive", subject: string, message: string) {
+type Audience = "all" | "inactive" | "never";
+
+// Descobre quem são os destinatários de cada público (só clientes já cadastrados, ativos e com e-mail).
+async function resolveAudience(audience: Audience) {
+  const db = supabaseAdmin();
+  const cutoff = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString();
+  const { data: clients } = await db.from("clients").select("cpf, email, last_referral_at").eq("active", true);
+  let neverCpfs = new Set<string>();
+  if (audience === "never") {
+    const { data: recs } = await db.from("recommendations").select("referrer_cpf");
+    const hasRecommended = new Set((recs ?? []).map((r: any) => r.referrer_cpf));
+    neverCpfs = new Set((clients ?? []).filter((c: any) => !hasRecommended.has(c.cpf)).map((c: any) => c.cpf));
+  }
+  const emails = (clients ?? [])
+    .filter((c: any) => {
+      if (!c.email) return false;
+      if (audience === "inactive") return !c.last_referral_at || c.last_referral_at < cutoff;
+      if (audience === "never") return neverCpfs.has(c.cpf);
+      return true;
+    })
+    .map((c: any) => c.email as string);
+  return Array.from(new Set(emails));
+}
+
+// Mostra quantas pessoas receberiam o disparo, antes de enviar.
+export async function countCampaignAudience(audience: Audience) {
+  await requireAdmin();
+  const emails = await resolveAudience(audience);
+  return { ok: true, count: emails.length };
+}
+
+export async function sendManualCampaign(audience: Audience, subject: string, message: string) {
   await requireAdmin();
   if (!subject.trim() || !message.trim()) return { ok: false, error: "Escreva assunto e mensagem." };
 
-  const db = supabaseAdmin();
-  const cutoff = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString();
+  const emails = await resolveAudience(audience);
+  if (emails.length === 0) return { ok: false, error: "Nenhum cliente encontrado nesse filtro." };
 
-  const { data: clients } = await db.from("clients").select("email, last_referral_at").eq("active", true);
-  const targets = (clients ?? []).filter((c) => {
-    if (!c.email) return false;
-    if (audience === "inactive") return !c.last_referral_at || c.last_referral_at < cutoff;
-    return true;
-  });
-
-  if (targets.length === 0) return { ok: false, error: "Nenhum cliente encontrado nesse filtro." };
-
-  const sent = await sendCampaignEmails(targets.map((t) => t.email as string), subject, message);
-  return { ok: true, sent };
+  const sent = await sendCampaignEmails(emails, subject, message);
+  if (sent === 0) return { ok: false, error: "Os e-mails não foram enviados. Veja o painel da Resend (Logs)." };
+  return { ok: true, sent, total: emails.length };
 }
 
 // ---------- Promoções temporárias de pontos ----------
