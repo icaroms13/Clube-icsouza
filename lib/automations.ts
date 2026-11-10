@@ -218,11 +218,9 @@ export async function emailWeeklyBecameClientDigest(
 
 export async function sendManualCampaign(recipients: string[], subject: string, message: string) {
   const html = wrap(subject, message.replace(/\n/g, "<br/>"));
-  let sent = 0;
-  for (const to of recipients) {
-    const result = await sendEmail(to, subject, html);
-    if (result.ok) sent++;
-  }
+  // Envio em lote: rápido e sem estourar o tempo limite da Vercel.
+  const results = await sendEmailBatch(recipients.map((to) => ({ to, subject, html })));
+  const sent = results.filter((r) => r.ok).length;
   if (sent > 0) {
     await logEmail(sent === 1 ? recipients[0] : `${sent} clientes`, subject, "manual");
   }
